@@ -51,7 +51,7 @@ var (
 
 	// defaultClient is used for performing requests without explicitly making
 	// a new client. It is purposely private to avoid modifications.
-	defaultClient = NewClient()
+	defaultClient = MustClient()
 
 	// We need to consume response bodies to maintain http connections, but
 	// limit the size we consume to respReadLimit.
@@ -285,6 +285,15 @@ type Client struct {
 	// metrics is the internal metrics generated to be used for
 	// metric collection when enabled.
 	metrics *retryHttpMetrics
+}
+
+// MustClient panics if it fails to create a Client instance.
+func MustClient() *Client {
+	var client, err = NewClient()
+	if err != nil {
+		panic(err.Error())
+	}
+	return client
 }
 
 // NewClient creates a new Client with default settings.
