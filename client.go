@@ -256,7 +256,6 @@ type ErrorHandler func(resp *http.Response, err error, numTries int) (*http.Resp
 type Client struct {
 	HTTPClient   *http.Client       // Internal HTTP client.
 	Logger       nlogger.Structured // Customer logger instance.
-	Metrics      bool               // Enable metrics flags.
 	RetryWaitMin time.Duration      // Minimum time to wait
 	RetryWaitMax time.Duration      // Maximum time to wait
 	RetryMax     int                // Maximum number of retries
@@ -289,8 +288,14 @@ type Client struct {
 }
 
 // NewClient creates a new Client with default settings.
-func NewClient() *Client {
+func NewClient() (*Client, error) {
+	var metrics, err = initMetrics()
+	if err != nil {
+		return nil, err
+	}
+
 	return &Client{
+		metrics:      metrics,
 		Logger:       nlogger.New(os.Stderr, "[HTTP CLIENT]"),
 		HTTPClient:   cleanhttp.DefaultClient(),
 		RetryWaitMin: defaultRetryWaitMin,
@@ -298,7 +303,7 @@ func NewClient() *Client {
 		RetryMax:     defaultRetryMax,
 		CheckRetry:   DefaultRetryPolicy,
 		Backoff:      DefaultBackoff,
-	}
+	}, nil
 }
 
 // DefaultRetryPolicy provides a default callback for Client.CheckRetry, which
@@ -382,15 +387,6 @@ func PassthroughErrorHandler(resp *http.Response, err error, _ int) (*http.Respo
 
 // Do wraps calling an HTTP method with retries.
 func (c *Client) Do(req *Request) (*http.Response, error) {
-	if c.Metrics {
-		var metrics, err = initMetrics()
-		if err != nil {
-			c.Logger.Error(err.Error())
-			return nil, err
-		}
-		c.metrics = metrics
-	}
-
 	if c.metrics != nil {
 		c.metrics.doTotal.Inc()
 	}
