@@ -254,13 +254,12 @@ type ErrorHandler func(resp *http.Response, err error, numTries int) (*http.Resp
 // Client is used to make HTTP requests. It adds additional functionality
 // like automatic retries to tolerate minor outages.
 type Client struct {
-	HTTPClient *http.Client       // Internal HTTP client.
-	Logger     nlogger.Structured // Customer logger instance.
-	Metrics    bool               // Enable metrics flags.
-
-	RetryWaitMin time.Duration // Minimum time to wait
-	RetryWaitMax time.Duration // Maximum time to wait
-	RetryMax     int           // Maximum number of retries
+	HTTPClient   *http.Client       // Internal HTTP client.
+	Logger       nlogger.Structured // Customer logger instance.
+	Metrics      bool               // Enable metrics flags.
+	RetryWaitMin time.Duration      // Minimum time to wait
+	RetryWaitMax time.Duration      // Maximum time to wait
+	RetryMax     int                // Maximum number of retries
 
 	// RequestModifier allows a user-supplied function to be called
 	// to modify a request object.
