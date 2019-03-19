@@ -35,11 +35,12 @@ import (
 	"strings"
 	"time"
 
+	"github.com/hashicorp/go-cleanhttp"
+
 	"github.com/prometheus/client_golang/prometheus"
 
 	"github.com/lalamove/nui/ntracing"
 
-	cleanhttp "github.com/hashicorp/go-cleanhttp"
 	"github.com/lalamove/nui/nlogger"
 )
 
@@ -255,6 +256,9 @@ type Config struct {
 	RetryWaitMax time.Duration // Maximum time to wait in retries
 	Logger       Logger        // Customer logger instance to be used.
 
+	// HttpClient is the internal HTTP client.
+	HttpClient *http.Client
+
 	// RequestModifier allows a user-supplied function to be called
 	// to modify a request object.
 	RequestModifier RequestModifier
@@ -282,17 +286,20 @@ func (c *Config) init() error {
 	if c.Logger == nil {
 		c.Logger = nlogger.New(os.Stderr, "[HTTP CLIENT]")
 	}
-	if c.CheckRetry == nil {
-		c.CheckRetry = DefaultRetryPolicy
-	}
-	if c.Backoff == nil {
-		c.Backoff = DefaultBackoff
+	if c.HttpClient == nil {
+		c.HttpClient = cleanhttp.DefaultClient()
 	}
 	if c.RetryMax <= 0 {
 		c.RetryWaitMin = defaultRetryWaitMin
 	}
 	if c.RetryWaitMax <= 0 {
 		c.RetryWaitMax = defaultRetryWaitMax
+	}
+	if c.CheckRetry == nil {
+		c.CheckRetry = DefaultRetryPolicy
+	}
+	if c.Backoff == nil {
+		c.Backoff = DefaultBackoff
 	}
 	if c.RetryMax <= 0 {
 		c.RetryMax = defaultRetryMax
@@ -304,9 +311,6 @@ func (c *Config) init() error {
 // like automatic retries to tolerate minor outages.
 type Client struct {
 	*Config
-
-	// httpClient is the internal HTTP client.
-	httpClient *http.Client
 
 	// metrics is the internal metrics generated to be used for
 	// metric collection when enabled.
@@ -329,9 +333,8 @@ func New(c *Config) (*Client, error) {
 	}
 
 	return &Client{
-		Config:     c,
-		metrics:    metrics,
-		httpClient: cleanhttp.DefaultClient(),
+		Config:  c,
+		metrics: metrics,
 	}, nil
 }
 
@@ -418,6 +421,8 @@ func PassthroughErrorHandler(resp *http.Response, err error, _ int) (*http.Respo
 func (c *Client) Do(req *Request) (*http.Response, error) {
 	if c.metrics != nil {
 		c.metrics.doTotal.Inc()
+		var timer = prometheus.NewTimer(c.metrics.doDuration)
+		defer timer.ObserveDuration()
 	}
 
 	// If modifier is provided then modify request.
@@ -426,24 +431,17 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 	}
 
 	var ctx = req.Context()
-	if span, ok := ntracing.NewChildSpanFromContext(ctx, "httpClient.Do"); ok {
+	if span, ok := ntracing.NewChildSpanFromContext(ctx, "HttpClient.Do"); ok {
 		defer span.Finish()
 
 		ctx = context.WithValue(ctx, ntracing.SpanKey, span)
 		req.WithContext(ctx)
 	}
 
-	if c.Logger != nil {
-		c.Logger.DebugWithFields("Sending request for method", func(entry nlogger.Entry) {
-			entry.String("method", req.Method)
-			entry.String("url", req.URL.String())
-		})
-	}
-
-	if c.metrics != nil {
-		var timer = prometheus.NewTimer(c.metrics.doDuration)
-		defer timer.ObserveDuration()
-	}
+	c.Logger.DebugWithFields("Sending request for method", func(entry nlogger.Entry) {
+		entry.String("method", req.Method)
+		entry.String("url", req.URL.String())
+	})
 
 	var resp *http.Response
 	var err error
@@ -486,7 +484,7 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 		}
 
 		// Attempt the request
-		resp, err = c.httpClient.Do(req.Request)
+		resp, err = c.HttpClient.Do(req.Request)
 		if resp != nil {
 			code = resp.StatusCode
 		}
@@ -504,12 +502,10 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 				c.metrics.doRetriesFailure.Inc()
 			}
 
-			if c.Logger != nil {
-				c.Logger.ErrorWithFields(err.Error(), func(entry nlogger.Entry) {
-					entry.String("method", req.Method)
-					entry.String("url", req.URL.String())
-				})
-			}
+			c.Logger.ErrorWithFields(err.Error(), func(entry nlogger.Entry) {
+				entry.String("method", req.Method)
+				entry.String("url", req.URL.String())
+			})
 		} else {
 			// Call this here to maintain the behavior of logging all requests,
 			// even if CheckRetry signals to stop.
@@ -555,15 +551,15 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 		if code > 0 {
 			desc = fmt.Sprintf("%s (status: %d)", desc, code)
 		}
-		if c.Logger != nil {
-			c.Logger.DebugWithFields(fmt.Sprintf("%s: retrying in %s (%d left)", desc, wait, remain), func(entry nlogger.Entry) {
-				entry.Int("remain", remain)
-				entry.String("desc", desc)
-				entry.String("method", req.Method)
-				entry.String("wait", wait.String())
-				entry.String("url", req.URL.String())
-			})
-		}
+
+		c.Logger.DebugWithFields("retrying http request", func(entry nlogger.Entry) {
+			entry.Int("remain", remain)
+			entry.String("desc", desc)
+			entry.String("method", req.Method)
+			entry.String("wait", wait.String())
+			entry.String("url", req.URL.String())
+		})
+
 		time.Sleep(wait)
 	}
 
