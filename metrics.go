@@ -116,8 +116,10 @@ type retryHttpMetrics struct {
 func registerMetrics(m map[string]prometheus.Collector) error {
 	for _, metric := range m {
 		var err = prometheus.Register(metric)
-		if err != nil && err != err.(prometheus.AlreadyRegisteredError) {
-			return err
+		if err != nil {
+			if _, ok := err.(prometheus.AlreadyRegisteredError); !ok {
+				return err
+			}
 		}
 	}
 	return nil
