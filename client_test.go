@@ -108,7 +108,7 @@ func testClient_Do(t *testing.T, body interface{}) {
 	retryCount := -1
 
 	// Create the client. Use short retry windows.
-	client, err := NewClient()
+	client, err := New(&Config{})
 	if err != nil {
 		t.Fatalf("Err: %#v", err)
 	}
@@ -226,7 +226,7 @@ func TestClient_Do_fails(t *testing.T) {
 	defer ts.Close()
 
 	// Create the client. Use short retry windows so we fail faster.
-	client, err := NewClient()
+	client, err := New(&Config{})
 	if err != nil {
 		t.Fatalf("Err: %#v", err)
 	}
@@ -259,7 +259,7 @@ func TestClient_Get(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client, err := NewClient()
+	client, err := New(&Config{})
 	if err != nil {
 		t.Fatalf("Err: %#v", err)
 	}
@@ -286,7 +286,7 @@ func TestClient_RequestLogHook(t *testing.T) {
 	retries := -1
 	testURIPath := "/foo/bar"
 
-	client, err := NewClient()
+	client, err := New(&Config{})
 	if err != nil {
 		t.Fatalf("Err: %#v", err)
 	}
@@ -335,7 +335,7 @@ func TestClient_ResponseLogHook(t *testing.T) {
 
 	buf := new(bytes.Buffer)
 
-	client, err := NewClient()
+	client, err := New(&Config{})
 	if err != nil {
 		t.Fatalf("Err: %#v", err)
 	}
@@ -397,7 +397,7 @@ func TestClient_RequestWithContext(t *testing.T) {
 	ctx, cancel := context.WithCancel(req.Request.Context())
 	req = req.WithContext(ctx)
 
-	client, err := NewClient()
+	client, err := New(&Config{})
 	if err != nil {
 		t.Fatalf("Err: %#v", err)
 	}
@@ -426,7 +426,7 @@ func TestClient_CheckRetry(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client, err := NewClient()
+	client, err := New(&Config{})
 	if err != nil {
 		t.Fatalf("Err: %#v", err)
 	}
@@ -460,7 +460,7 @@ func TestClient_CheckRetryStop(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client, err := NewClient()
+	client, err := New(&Config{})
 	if err != nil {
 		t.Fatalf("Err: %#v", err)
 	}
@@ -496,7 +496,7 @@ func TestClient_Head(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client, err := NewClient()
+	client, err := New(&Config{})
 	if err != nil {
 		t.Fatalf("Err: %#v", err)
 	}
@@ -536,7 +536,7 @@ func TestClient_Post(t *testing.T) {
 	}))
 	defer ts.Close()
 
-	client, err := NewClient()
+	client, err := New(&Config{})
 	if err != nil {
 		t.Fatalf("Err: %#v", err)
 	}
@@ -585,7 +585,7 @@ func TestClient_PostForm(t *testing.T) {
 		t.Fatalf("err: %v", err)
 	}
 
-	client, err := NewClient()
+	client, err := New(&Config{})
 	if err != nil {
 		t.Fatalf("Err: %#v", err)
 	}
@@ -654,7 +654,7 @@ func TestBackoff(t *testing.T) {
 func TestClient_BackoffCustom(t *testing.T) {
 	var retries int32
 
-	client, err := NewClient()
+	client, err := New(&Config{})
 	if err != nil {
 		t.Fatalf("Err: %#v", err)
 	}

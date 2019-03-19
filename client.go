@@ -49,10 +49,6 @@ var (
 	defaultRetryWaitMax = 30 * time.Second
 	defaultRetryMax     = 4
 
-	// defaultClient is used for performing requests without explicitly making
-	// a new client. It is purposely private to avoid modifications.
-	defaultClient = MustClient()
-
 	// We need to consume response bodies to maintain http connections, but
 	// limit the size we consume to respReadLimit.
 	respReadLimit = int64(4096)
@@ -251,14 +247,13 @@ type Backoff func(min, max time.Duration, attemptNum int, resp *http.Response) t
 // attempted. If overriding this, be sure to close the body if needed.
 type ErrorHandler func(resp *http.Response, err error, numTries int) (*http.Response, error)
 
-// Client is used to make HTTP requests. It adds additional functionality
-// like automatic retries to tolerate minor outages.
-type Client struct {
-	HTTPClient   *http.Client       // Internal HTTP client.
-	Logger       nlogger.Structured // Customer logger instance.
-	RetryWaitMin time.Duration      // Minimum time to wait
-	RetryWaitMax time.Duration      // Maximum time to wait
-	RetryMax     int                // Maximum number of retries
+// Config is to be used to instantiate giving Client.
+type Config struct {
+	Metrics      bool          // Flag to enable metrics.
+	RetryMax     int           // Maximum number of retries
+	RetryWaitMin time.Duration // Minimum time to wait in retries
+	RetryWaitMax time.Duration // Maximum time to wait in retries
+	Logger       Logger        // Customer logger instance to be used.
 
 	// RequestModifier allows a user-supplied function to be called
 	// to modify a request object.
@@ -281,37 +276,62 @@ type Client struct {
 
 	// ErrorHandler specifies the custom error handler to use, if any
 	ErrorHandler ErrorHandler
+}
+
+func (c *Config) init() error {
+	if c.Logger == nil {
+		c.Logger = nlogger.New(os.Stderr, "[HTTP CLIENT]")
+	}
+	if c.CheckRetry == nil {
+		c.CheckRetry = DefaultRetryPolicy
+	}
+	if c.Backoff == nil {
+		c.Backoff = DefaultBackoff
+	}
+	if c.RetryMax <= 0 {
+		c.RetryWaitMin = defaultRetryWaitMin
+	}
+	if c.RetryWaitMax <= 0 {
+		c.RetryWaitMax = defaultRetryWaitMax
+	}
+	if c.RetryMax <= 0 {
+		c.RetryMax = defaultRetryMax
+	}
+	return nil
+}
+
+// Client is used to make HTTP requests. It adds additional functionality
+// like automatic retries to tolerate minor outages.
+type Client struct {
+	*Config
+
+	// httpClient is the internal HTTP client.
+	httpClient *http.Client
 
 	// metrics is the internal metrics generated to be used for
 	// metric collection when enabled.
 	metrics *retryHttpMetrics
 }
 
-// MustClient panics if it fails to create a Client instance.
-func MustClient() *Client {
-	var client, err = NewClient()
-	if err != nil {
-		panic(err.Error())
-	}
-	return client
-}
-
-// NewClient creates a new Client with default settings.
-func NewClient() (*Client, error) {
-	var metrics, err = initMetrics()
-	if err != nil {
+// New creates a new Client with default settings.
+func New(c *Config) (*Client, error) {
+	var err error
+	if err = c.init(); err != nil {
 		return nil, err
 	}
 
+	var metrics *retryHttpMetrics
+	if c.Metrics {
+		metrics, err = initMetrics()
+		if err != nil {
+			return nil, err
+		}
+	}
+
 	return &Client{
-		metrics:      metrics,
-		Logger:       nlogger.New(os.Stderr, "[HTTP CLIENT]"),
-		HTTPClient:   cleanhttp.DefaultClient(),
-		RetryWaitMin: defaultRetryWaitMin,
-		RetryWaitMax: defaultRetryWaitMax,
-		RetryMax:     defaultRetryMax,
-		CheckRetry:   DefaultRetryPolicy,
-		Backoff:      DefaultBackoff,
+		Config:     c,
+		metrics:    metrics,
+		httpClient: cleanhttp.DefaultClient(),
 	}, nil
 }
 
@@ -466,7 +486,7 @@ func (c *Client) Do(req *Request) (*http.Response, error) {
 		}
 
 		// Attempt the request
-		resp, err = c.HTTPClient.Do(req.Request)
+		resp, err = c.httpClient.Do(req.Request)
 		if resp != nil {
 			code = resp.StatusCode
 		}
@@ -575,11 +595,6 @@ func (c *Client) drainBody(body io.ReadCloser) {
 	}
 }
 
-// Get is a shortcut for doing a GET request without making a new client.
-func Get(url string) (*http.Response, error) {
-	return defaultClient.Get(url)
-}
-
 // Get is a convenience helper for doing simple GET requests.
 func (c *Client) Get(url string) (*http.Response, error) {
 	req, err := NewRequest("GET", url, nil)
@@ -587,11 +602,6 @@ func (c *Client) Get(url string) (*http.Response, error) {
 		return nil, err
 	}
 	return c.Do(req)
-}
-
-// Head is a shortcut for doing a HEAD request without making a new client.
-func Head(url string) (*http.Response, error) {
-	return defaultClient.Head(url)
 }
 
 // Head is a convenience method for doing simple HEAD requests.
@@ -603,11 +613,6 @@ func (c *Client) Head(url string) (*http.Response, error) {
 	return c.Do(req)
 }
 
-// Post is a shortcut for doing a POST request without making a new client.
-func Post(url, bodyType string, body interface{}) (*http.Response, error) {
-	return defaultClient.Post(url, bodyType, body)
-}
-
 // Post is a convenience method for doing simple POST requests.
 func (c *Client) Post(url, bodyType string, body interface{}) (*http.Response, error) {
 	req, err := NewRequest("POST", url, body)
@@ -616,12 +621,6 @@ func (c *Client) Post(url, bodyType string, body interface{}) (*http.Response, e
 	}
 	req.Header.Set("Content-Type", bodyType)
 	return c.Do(req)
-}
-
-// PostForm is a shortcut to perform a POST with form data without creating
-// a new client.
-func PostForm(url string, data url.Values) (*http.Response, error) {
-	return defaultClient.PostForm(url, data)
 }
 
 // PostForm is a convenience method for doing simple POST operations using
